@@ -1,5 +1,4 @@
-# LSPO
-Literature Survey Pdf Organiser
+# rename_paper.py
 
 A command-line tool for Linux that automatically renames research-paper PDFs to a consistent `YEAR_Author_Journal.pdf` format, using metadata pulled from the PDF itself and from free scholarly APIs.
 
