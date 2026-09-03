@@ -513,12 +513,12 @@ def unique_path(target: Path) -> Path:
 # Main per-file pipeline
 # --------------------------------------------------------------------------
 
-def process_file(pdf_path: Path, dry_run: bool, copy: bool) -> None:
+def process_file(pdf_path: Path, dry_run: bool, copy: bool, force: bool) -> None:
     print(f"\nProcessing: {pdf_path}")
     text = extract_first_pages_text(pdf_path)
     if not text.strip():
         print("  [skip] no extractable text (possibly a scanned PDF — try OCR first, e.g. `ocrmypdf`)")
-        return
+        return False
 
     meta = dict(EMPTY_META)
     title_cache = {}
@@ -564,15 +564,19 @@ def process_file(pdf_path: Path, dry_run: bool, copy: bool) -> None:
         merge_missing(meta, strategy_heuristic(text, pdf_path))
 
     print(f"  Final metadata: author={meta['author']!r}, year={meta['year']!r}, journal={meta['journal']!r}")
-    if not is_complete(meta):
-        print("  [note] one or more fields could not be determined — filename will contain 'Unknown*' for those")
+
+    if not is_complete(meta) and not force:
+        missing = [k for k in ("author", "year", "journal") if not meta.get(k)]
+        print(f"  [skip] could not determine: {', '.join(missing)} — leaving file untouched")
+        print("        (use --force to rename anyway with 'Unknown*' placeholders)")
+        return False
 
     new_name = build_filename(meta)
     new_path = unique_path(pdf_path.with_name(new_name))
 
     if dry_run:
         print(f"  [dry-run] would rename to: {new_path.name}")
-        return
+        return True
 
     if copy:
         shutil.copy2(pdf_path, new_path)
@@ -580,6 +584,7 @@ def process_file(pdf_path: Path, dry_run: bool, copy: bool) -> None:
     else:
         pdf_path.rename(new_path)
         print(f"  Renamed to: {new_path.name}")
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -617,6 +622,10 @@ def main():
     parser.add_argument("paths", nargs="+", help="PDF file(s) or folder(s) to process")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without renaming")
     parser.add_argument("--copy", action="store_true", help="Copy to new name instead of renaming in place")
+    parser.add_argument("--force", action="store_true",
+                         help="Rename even if author/year/journal couldn't all be determined, "
+                              "using 'Unknown*' placeholders for missing fields. "
+                              "Without this flag, files with incomplete metadata are left untouched.")
     parser.add_argument("--email", default=API_EMAIL, help="Email for API polite-pool access (recommended)")
     args = parser.parse_args()
     API_EMAIL = args.email
@@ -631,8 +640,14 @@ def main():
         return
 
     print(f"Found {len(pdfs)} PDF file(s).")
+    skipped = 0
     for pdf in pdfs:
-        process_file(pdf, dry_run=args.dry_run, copy=args.copy)
+        if process_file(pdf, dry_run=args.dry_run, copy=args.copy, force=args.force) is False:
+            skipped += 1
+
+    if skipped:
+        print(f"\n{skipped} file(s) skipped due to incomplete metadata "
+              f"(re-run with --force to rename them anyway).")
 
 
 if __name__ == "__main__":
